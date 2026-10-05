@@ -1,17 +1,15 @@
 services:
   db:
-    image: mysql:8.4
-    command: ["--default-time-zone=+00:00", "--character-set-server=utf8mb4"]
+    image: postgres:16-alpine
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: hourglass
-      MYSQL_USER: hourglass
-      MYSQL_PASSWORD: hourglass
-    ports: ["3306:3306"]
+      POSTGRES_USER: hourglass
+      POSTGRES_PASSWORD: hourglass
+      POSTGRES_DB: hourglass
+    ports: ["5432:5432"]
     volumes:
-      - dbdata:/var/lib/mysql
-      # Runs once, on first start of an empty volume (files run in name order).
+      - pgdata:/var/lib/postgresql/data
+      # Runs once, on first start of an empty volume.
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
 volumes:
-  dbdata:
+  pgdata:

@@ -107,7 +107,7 @@ export class ChatService {
   }
 
   private create(user: AuthUser) {
-    return this.sessions.save(this.sessions.create({ userId: user.id, businessId: user.businessId, messages: [], extractedState: {}, lastMessageAt: new Date() }));
+    return this.sessions.save(this.sessions.create({ userId: user.id, businessId: user.businessId, messages: [], extractedState: {} }));
   }
 
   private state(s: ChatSession): SessionState {

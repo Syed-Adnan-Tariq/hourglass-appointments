@@ -39,8 +39,8 @@ export class AppointmentsService {
         }),
       );
     } catch (e: any) {
-      // Two people raced for the same slot: the unique index on the active slot caught it.
-      if (e?.code === 'ER_DUP_ENTRY' || e?.driverError?.code === 'ER_DUP_ENTRY') throw new ConflictException('That slot is already booked.');
+      // Two people raced for the same slot: the partial unique index caught it.
+      if (e?.code === '23505' || e?.driverError?.code === '23505') throw new ConflictException('That slot is already booked.');
       throw e;
     }
   }

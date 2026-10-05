@@ -8,7 +8,7 @@ VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000
 
 INSERT INTO appointments (business_id, user_id, service, starts_at, ends_at, status, source, notes)
 VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000a1',
-        'Consultation', UTC_TIMESTAMP(3) + INTERVAL 2 DAY, UTC_TIMESTAMP(3) + INTERVAL 2 DAY + INTERVAL 30 MINUTE,
+        'Consultation', now() + interval '2 days', now() + interval '2 days 30 minutes',
         'confirmed', 'form', 'First visit');
 
 INSERT INTO chat_sessions (business_id, user_id, messages, extracted_state)

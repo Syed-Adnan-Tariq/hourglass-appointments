@@ -17,10 +17,8 @@ import { AiInteractionLog } from './ai/ai-log.entity';
     // Global baseline: 100 requests/min per IP. Auth and chat tighten this per route.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     TypeOrmModule.forRoot({
-      type: 'mysql',
+      type: 'postgres',
       url: process.env.DATABASE_URL,
-      timezone: 'Z', // DATETIME columns hold UTC
-      charset: 'utf8mb4',
       ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
       entities: [User, Appointment, ChatSession, AiInteractionLog],
       synchronize: false, // schema is owned by db/schema.sql

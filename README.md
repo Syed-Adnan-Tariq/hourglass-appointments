@@ -4,7 +4,7 @@ A small SaaS-style app where signed-in users book appointments either by chattin
 
 - **Frontend:** React + Vite + TypeScript
 - **Backend:** NestJS (Node, TypeScript), REST, JWT auth
-- **Database:** MySQL 8 (schema in `db/schema.sql`)
+- **Database:** PostgreSQL (schema in `db/schema.sql`)
 - **AI:** Mistral chat completions (JSON mode)
 
 ## High-level architecture
@@ -17,7 +17,7 @@ A small SaaS-style app where signed-in users book appointments either by chattin
                            └─ AiModule            Mistral adapter, output validation, interaction logs
                                     │
                                     ▼
-                               MySQL  (businesses, users, appointments, chat_sessions, ai_interaction_logs)
+                               PostgreSQL  (businesses, users, appointments, chat_sessions, ai_interaction_logs)
 ```
 
 **The key boundary:** `AiService` only converses and extracts. It has no database access and never books anything. `ChatService` takes its output, merges it into the session's state, and calls `AppointmentsService`, the same code path the form uses. So the AI cannot bypass business hours, the 30-minute grid or double-booking checks.
@@ -37,7 +37,7 @@ The API returns `requiresForm: true` when the AI call fails (timeout, HTTP error
 
 ## Run it locally
 
-Prerequisites: Node 20+, Docker (or any MySQL 8.0.13+).
+Prerequisites: Node 20+, Docker (or any PostgreSQL 14+).
 
 ```bash
 # 1. Database (applies db/schema.sql and db/seed.sql on first start)
@@ -57,7 +57,7 @@ npm run dev                 # http://localhost:5173 (proxies /api to :3000)
 
 Demo account from the seed: `demo@hourglass.test` / `Password123!`. Or create your own on the sign-up screen.
 
-Without Docker: create a database (utf8mb4, server time zone UTC), then run `mysql -u <user> -p <db> < db/schema.sql && mysql -u <user> -p <db> < db/seed.sql`. MySQL 8.0.13+ is required for expression defaults like `DEFAULT (UUID())`.
+Without Docker: create a database, then run `psql "$DATABASE_URL" -f db/schema.sql -f db/seed.sql`.
 
 ## API summary
 
@@ -87,10 +87,10 @@ Errors share one shape, `{statusCode, message}`. Statuses used: 400 validation o
 
 See `db/schema.sql` (DDL with comments) and `db/seed.sql` (sample inserts).
 
-- **Double-booking is prevented by the database.** MySQL has no partial indexes, so a virtual generated column `active_starts_at` holds the start time while an appointment is active and `NULL` once it is cancelled, and a unique index on `(business_id, active_starts_at)` enforces one active booking per slot (unique indexes ignore `NULL`s). The app checks first for good messages, and handles the duplicate-key error (`ER_DUP_ENTRY`) for the race where two people book at once.
-- **Indexes:** `(user_id, starts_at DESC)` for "my appointments", `(business_id, starts_at)` for day availability, `(user_id, status, last_message_at)` on `chat_sessions` for "resume my chat", and `(success, created_at)` on AI logs for finding failures.
+- **Double-booking is prevented by the database:** a partial unique index on `(business_id, starts_at) WHERE status <> 'cancelled'`. The app checks first for good messages, and handles the unique violation (`23505`) for the race where two people book at once.
+- **Indexes:** `(user_id, starts_at DESC)` for "my appointments", `(business_id, starts_at)` for day availability, a partial index on active `chat_sessions` for "resume my chat", and a partial index on failed AI calls for debugging.
 - **Multi-tenancy:** `businesses` is the tenant root and every table carries `business_id`. Signup currently assigns the single `DEFAULT_BUSINESS_ID`; the schema and queries are already tenant-scoped.
-- **Performance:** chat history is a `JSON` array on the session row (one read per turn, cheap at human conversation lengths). `ai_interaction_logs` is append-only and would be the first table to partition by month at scale.
+- **Performance:** chat history is a `jsonb` array on the session row (one read per turn, cheap at human conversation lengths). `ai_interaction_logs` is append-only and would be the first table to partition by month at scale.
 
 ## Key decisions and tradeoffs
 
@@ -100,10 +100,8 @@ See `db/schema.sql` (DDL with comments) and `db/seed.sql` (sample inserts).
 | Request/response chat with a typing indicator, not WebSockets | Each turn is one LLM call; there is no server push to justify a socket | Not streaming tokens; replies appear whole |
 | LLM extracts, code decides | Guardrails live in testable code (`booking-rules.ts` is pure functions) | Extra round trips when the model misses a field |
 | Server owns date/time conversion | Clients send business-local `date` + `time`; no browser-timezone bugs | Business timezone is a fixed offset (see limitations) |
-| Messages as `JSON` on the session | Simple, atomic, one read per turn | Awkward for per-message analytics; a `chat_messages` table is the next step |
+| Messages as `jsonb` on the session | Simple, atomic, one read per turn | Awkward for per-message analytics; a `chat_messages` table is the next step |
 | Schema in SQL, `synchronize: false` | The DDL is the reviewable source of truth | No migration tool wired in yet |
-| Timestamps as `DATETIME(3)` in UTC | `TIMESTAMP` has the 2038 limit and implicit time-zone conversion; UTC is applied explicitly by the driver (`timezone: 'Z'`) | The app, not the column type, owns the UTC convention |
-| UUIDs as `CHAR(36)` | Readable, easy to debug, ids are safe to expose | Larger keys than `BINARY(16)`; random UUIDs also fragment the primary index more than sequential ids |
 | Plain CSS, no UI library | Small, readable, no dependency to explain | More hand-written styling |
 
 ## Assumptions
@@ -123,10 +121,10 @@ See `db/schema.sql` (DDL with comments) and `db/seed.sql` (sample inserts).
 
 ## What was verified while building
 
-Against a real MySQL 8.0 with the schema above, the API was exercised end to end: signup/login, duplicate email, bad credentials, DTO validation, form booking, double booking (409), weekend and off-hours rejection (400), cancel and rebook, login rate limiting (429 after 10), and the full chat flow (extract, early conflict check, confirm, book) plus the AI-failure fallback. For that run the Mistral endpoint was a local mock (`MISTRAL_API_URL`), because the build sandbox cannot reach `api.mistral.ai`. **Run one real conversation with your own Mistral key before submitting.** The frontend type-checks and builds, but I have not clicked through it in a browser.
+Against a real PostgreSQL 16 with the schema above, the API was exercised end to end: signup/login, duplicate email, bad credentials, DTO validation, form booking, double booking (409), weekend and off-hours rejection (400), cancel and rebook, login rate limiting (429 after 10), and the full chat flow (extract, early conflict check, confirm, book) plus the AI-failure fallback. For that run the Mistral endpoint was a local mock (`MISTRAL_API_URL`), because the build sandbox cannot reach `api.mistral.ai`. **Run one real conversation with your own Mistral key before submitting.** The frontend type-checks and builds, but I have not clicked through it in a browser.
 
 ## Deploying
 
-- **Database:** any managed MySQL 8 (Railway, Aiven or DigitalOcean, for example). The schema uses foreign keys, a CHECK constraint and a generated column, so pick a host that supports them. Apply `db/schema.sql` and `db/seed.sql`; set `DB_SSL=true` and `DATABASE_URL=mysql://user:pass@host:3306/db`.
+- **Database:** Neon, Supabase or Render Postgres. Apply `db/schema.sql` and `db/seed.sql`; set `DB_SSL=true`.
 - **API:** Render or Railway, root `backend`, build `npm install && npm run build`, start `npm start`. Set the env vars from `.env.example` and `CORS_ORIGIN` to the web URL.
 - **Web:** Vercel or Netlify, root `frontend`, build `npm run build`, output `dist`. Set `VITE_API_URL` to `https://<api-host>/api`.
